@@ -159,9 +159,19 @@ class Ease_crud
             foreach($structures["structure"] as $structure){
                 $column = $structure["name"];
                 if(is_array($structure["select"])){
+                    $value = "";
                     foreach($structure["select"] as $select){
-                        if($data[$column] == $select["value"]){
-                            $value = $select["label"];
+                        if(stristr($data[$column],"," )){
+                            $checked = explode(",",$data[$column]);
+                            foreach($checked as $check){
+                                if($check == $select["value"]){
+                                    $value .= $select["label"].",";
+                                }
+                            }
+                        }else{
+                            if($data[$column] == $select["value"]){
+                                $value = $select["label"];
+                            }
                         }
                     }
                 }else{
@@ -204,6 +214,20 @@ class Ease_crud
     function sign($table){
         $structures = $this->structure($table);
         $sign_data = array();
+
+        // postのチェック
+        foreach($_POST as $label=>$values){
+            if(is_array($values)){
+                $data = "";
+                foreach($values as $value){
+                    $data .= $value.",";
+                }
+                $label = str_replace("[]","", $label);
+                $_POST[$label] = $data;
+            }
+        }
+
+        // 構造のチェック
         foreach($structures["structure"] as $structure){
             $column = $structure["name"];
 
@@ -219,6 +243,32 @@ class Ease_crud
             if($structure["required"] == "required" AND !isset($structure["default"])){
                 $bind .= "|required";
             }
+
+            if($structure["type"]=="date"){
+                $name = $structure["name"];
+                $_POST[$name] = explode(",",$_POST[$name]);
+                if($_POST[$name][1]<10){
+                    $_POST[$name][1] = "0".$_POST[$name][1];
+                }
+                if($_POST[$name][2]<10){
+                    $_POST[$name][2] = "0".$_POST[$name][2];
+                }
+                $_POST[$name] = date("Y-m-d", strtotime($_POST[$name][0]."/".$_POST[$name][1]."/".$_POST[$name][2]));
+            }
+
+
+            if($structure["type"]=="time"){
+                $name = $structure["name"];
+                $_POST[$name] = explode(",",$_POST[$name]);
+                if($_POST[$name][0]<10){
+                    $_POST[$name][0] = "0".$_POST[$name][0];
+                }
+                if($_POST[$name][1]<10){
+                    $_POST[$name][1] = "0".$_POST[$name][1];
+                }
+                $_POST[$name] = date("H:i", strtotime($_POST[$name][0].":".$_POST[$name][1]));
+            }
+
             $this->ci->form_validation->set_rules($structure["name"], $structure["name"], $bind);
 
             if(isset($_POST[$column])){
@@ -260,7 +310,7 @@ class Ease_crud
                 foreach($post["search"] as $label => $value){
                     if (!stristr($label, "dispose-") AND !empty($value)){
                         $where .= $label;
-                        $type = $post["dispose-".$label];
+                        $type = $post["search"]["dispose-".$label];
 
                         if($type==1){
                             // 含む
@@ -348,7 +398,7 @@ class Ease_crud
      * @param bool $search
      * @return array
      */
-    function format_form_array($structures,$labels=array(),$input_class=NULL,$search=FALSE)
+    function format_form_array($structures,$labels=array(),$input_class=NULL,$search=FALSE,$checkbox=array())
     {
         $data = array();
         foreach($structures["structure"] as $str){
@@ -381,24 +431,38 @@ class Ease_crud
             }
 
             if ($str["type"]=="SELECT"){	//selectの場合
-                $tmp_input = "<select class='${input_class}' name='${str['name']}'>";
-                $tmp_input .= "<option value=''>選択してください</option>";
 
-                foreach($str["select"] as $select){
-                    if($str['value'] == $select["value"]){
-                        $tmp_input .= "<option value='${select["value"]}' selected>${select["label"]}</option>";
-                    }else{
-                        $tmp_input .= "<option value='${select["value"]}'>${select["label"]}</option>";
+                $tmp_input ="";
+                if (in_array($str['name'],$checkbox)){    // チェックボックス
+                    $tmp_input .= "<div class='checkbox'>";
+                    $array_value = explode (",",$str['value']);
+                    foreach($str["select"] as $select){
+                        if(array_search($select["value"], $array_value)!== false){
+                            $tmp_input .= "<label class='checkbox' style='margin:0 10px 10px 0;display:inline-block;'><input type='checkbox' name='${str['name']}[]' value='${select["value"]}' checked> ${select["label"]}</label>";
+                        }else{
+                            $tmp_input .= "<label class='checkbox' style='margin:0 10px 10px 0;display:inline-block;'><input type='checkbox' name='${str['name']}[]' value='${select["value"]}'> ${select["label"]}</label>";
+                        }
                     }
+                    $tmp_input .= "</div>";
+                }else{
+                    $tmp_input = "<select class='${input_class}' name='${str['name']}' ${str['required']}>";
+                    $tmp_input .= "<option value=''>選択してください</option>";
+                    foreach($str["select"] as $select){
+                        if($str['value'] == $select["value"]){
+                            $tmp_input .= "<option value='${select["value"]}' ng-value='${select["value"]}' ng-selected='true' selected>${select["label"]}</option>";
+                        }else{
+                            $tmp_input .= "<option value='${select["value"]}' ng-value='${select["value"]}'>${select["label"]}</option>";
+                        }
+                    }
+                    $tmp_input .= "</select>";
                 }
 
-                $tmp_input .= "</select>";
                 $input = array(
-                    "label"  => $label,
-                    "type"   =>$str['type'],
-                    "name"   =>$str['name'],
-                    "data"  => $tmp_input,
-                    "required"=>$str['required'],
+                    "label"     =>  $label,
+                    "type"      =>  $str['type'],
+                    "name"      =>  $str['name'],
+                    "data"      =>  $tmp_input,
+                    "required"  =>  $str['required'],
                 );
                 unset($tmp_input);
 
@@ -413,20 +477,89 @@ class Ease_crud
                 );
             } elseif ($str["type"]=="date")
             {	//フォーマットdateの場合
+
+                if(!empty($str['value'])){
+                    $day = explode("-",$str['value']);
+                }else{
+                    $day = array();
+                }
+                $y = "<option value=''>年</option>";
+                $m = "<option value=''>月</option>";
+                $d = "<option value=''>日</option>";
+                for($i=1960;$i<2051;$i++){
+                    if(!isset($day[0]) AND date("Y")==$i) {
+                        $checked = "selected";
+                    }elseif(isset($day[0]) AND $day[0]==$i){
+                        $checked = "selected";
+                    }else{
+                        $checked = "";
+                    }
+                    $y .= "<option value='${i}' ${checked}>${i}年</option>";
+                }
+                for($i=1;$i<13;$i++){
+                    if(isset($day[1]) AND intval($day[1])==$i){
+                        $checked = "selected";
+                    }else{
+                        $checked = "";
+                    }
+                    $m .= "<option value='${i}' ${checked}>${i}月</option>";
+                }
+
+                for($i=1;$i<32;$i++){
+                    if(isset($day[2]) AND intval($day[2])==$i){
+                        $checked = "selected";
+                    }else{
+                        $checked = "";
+                    }
+                    $d .= "<option value='${i}' ${checked}>${i}日</option>";
+                }
+
                 $input = array(
                     "label"=> $label,
                     "type"   =>$str['type'],
                     "name"   =>$str['name'],
-                    "data"=> "<input type='date' class='${input_class}' name='${str['name']}' ng-init=\"${str['name']}='${str['value']}'\" ng-model='${str['name']}' value='${str['value']}' ${str['required']}  placeholder='${placeholder}' />",
+                    "data"  =>  "<div class='row'><div class='col-xs-4 small-4 columns'><select class='${input_class}' name='${str['name']}[0]' ${str['required']}>${y}</select></div>
+                                 <div class='col-xs-4 small-4 columns'><select class='${input_class}' name='${str['name']}[1]' ${str['required']}>${m}</select></div>
+                                 <div class='col-xs-4 small-4 columns'><select class='${input_class}' name='${str['name']}[2]' ${str['required']}>${d}</select></div></div>",
+                    //"data"=> "<input type='date' class='${input_class}' name='${str['name']}' ng-init=\"${str['name']}='${str['value']}'\" ng-model='${str['name']}' value='${str['value']}' ${str['required']}  placeholder='${placeholder}' />",
                     "required"=>$str['required'],
                 );
             } elseif ($str["type"]=="time")
-            {	//フォーマットdateの場合
+            {	//フォーマットtimeの場合
+
+
+                if(!empty($str['value'])){
+                    $time = explode(":",$str['value']);
+                }else{
+                    $time = array();
+                }
+                $h = "<option value=''>時</option>";
+                $m = "<option value=''>分</option>";
+                for($i=1;$i<25;$i++){
+                    if(isset($time[0]) AND $time[0]==$i){
+                        $checked = "selected";
+                    }else{
+                        $checked = "";
+                    }
+                    $h .= "<option value='${i}' ${checked}>${i}時</option>";
+                }
+                for($i=1;$i<61;$i++){
+                    if(isset($time[1]) AND intval($time[1])==$i){
+                        $checked = "selected";
+                    }else{
+                        $checked = "";
+                    }
+                    $m .= "<option value='${i}' ${checked}>${i}分</option>";
+                }
+
+
                 $input = array(
                     "label"=> $label,
                     "type"   =>$str['type'],
                     "name"   =>$str['name'],
-                    "data"=> "<input type='time' class='${input_class}' name='${str['name']}' ng-init=\"${str['name']}='${str['value']}'\" ng-model='${str['name']}' value='${str['value']}' ${str['required']}  placeholder='${placeholder}' />",
+                    "data"  =>  "<div class='row'><div class='col-xs-4 small-4 columns'><select class='${input_class}' name='${str['name']}[0]' ${str['required']}>${h}</select></div>
+                                 <div class='col-xs-4 small-4 columns'><select class='${input_class}' name='${str['name']}[1]' ${str['required']}>${m}</select></div><div class='small-4 columns'></div></div>",
+                    //"data"=> "<input type='time' class='${input_class}' name='${str['name']}' ng-init=\"${str['name']}='${str['value']}'\" ng-model='${str['name']}' value='${str['value']}' ${str['required']}  placeholder='${placeholder}' />",
                     "required"=>$str['required'],
                 );
             } elseif (stristr($str["type"], "int"))
@@ -444,7 +577,7 @@ class Ease_crud
                     "label"=> $label,
                     "type"   =>$str['type'],
                     "name"   =>$str['name'],
-                    "data"=> "<textarea class='${input_class}' name='${str['name']}' ${str['required']} rows='5'  placeholder='${placeholder}'>${str['value']}</textarea>",
+                    "data"=> "<textarea class='${input_class}' name='${str['name']}' ng-init=\"${str['name']}='${str['value']}'\" ng-model='${str['name']}' ${str['required']} rows='5'  placeholder='${placeholder}'>${str['value']}</textarea>",
                     "required"=>$str['required'],
                 );
             } elseif($str["type"]== "hidden") {

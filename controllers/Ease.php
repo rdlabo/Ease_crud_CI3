@@ -48,6 +48,9 @@ class Ease extends CI_Controller {
                 1   =>"無効"
             ),
         );
+        $this->checkbox = array(
+            "sex"
+        );
         // list表示の時に隠すcolumn
         $this->list_hidden = array("birthtime","birthplace","ip");
         // index()のURL
@@ -194,7 +197,7 @@ class Ease extends CI_Controller {
         if(!$structures = $this->ease_crud->structure($this->table,array("t_stamp"),$this->select,$primary_key)){
             exit("その操作は許可されておりません");
         }
-        $partials["form"] = $this->ease_crud->format_form_array($structures,$this->label,"form-control");    // table構造からformを作成
+        $partials["form"] = $this->ease_crud->format_form_array($structures,$this->label,"form-control",array(),$this->checkbox);    // table構造からformを作成
         /* ここまでEase_crud */
 
 
